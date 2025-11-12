@@ -220,3 +220,11 @@ redis_data/
 # OS
 .DS_Store
 Thumbs.db
+
+# ML Models (trained models are large and should not be committed)
+backend/app/ml/models/*.joblib
+backend/app/ml/models/*.pkl
+backend/app/ml/models/*.h5
+backend/app/ml/models/*.pt
+backend/app/ml/models/*.pth
+!backend/app/ml/models/.gitkeep

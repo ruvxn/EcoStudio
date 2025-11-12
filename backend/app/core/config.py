@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     """
 
     # Application Settings
-    PROJECT_NAME: str = "EcoTrainer Studio"
+    PROJECT_NAME: str = "Eco Studio"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = Field(..., min_length=32)

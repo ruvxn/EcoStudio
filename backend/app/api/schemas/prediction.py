@@ -2,7 +2,7 @@
 Pydantic schemas for prediction API requests and responses.
 """
 from datetime import datetime, date
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from app.api.models import ContentType

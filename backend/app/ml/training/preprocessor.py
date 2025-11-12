@@ -50,8 +50,8 @@ class DataPreprocessor:
         if null_engagement > 0:
             return False, f"{null_engagement} posts have null engagement scores"
 
-        # Check for engagement score variance
-        if df["engagement_score"].std() == 0:
+        # Check for engagement score variance (use tolerance for floating-point comparison)
+        if df["engagement_score"].std() < 1e-10:
             return False, "All posts have identical engagement scores (zero variance)"
 
         # Check date column is datetime

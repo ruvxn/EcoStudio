@@ -23,10 +23,10 @@ def extract_content_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Content type features (one-hot encoding will be done in main engineering)
     if "content_type" in df.columns:
-        df["content_type"] = df["content_type"].fillna("photo").str.lower()
+        df["content_type"] = df["content_type"].fillna("image").str.lower()
         # Ensure valid content types
         df["content_type"] = df["content_type"].apply(
-            lambda x: x if x in CONTENT_TYPES else "photo"
+            lambda x: x if x in CONTENT_TYPES else "image"
         )
 
     # Caption features
@@ -96,7 +96,7 @@ def count_emojis(text: str) -> int:
         "\U0001F1E0-\U0001F1FF"
         "\U00002702-\U000027B0"
         "\U000024C2-\U0001F251"
-        "]+",
+        "]",  # Removed '+' to match individual emojis, not groups
         flags=re.UNICODE
     )
     return len(emoji_pattern.findall(text))
@@ -206,7 +206,7 @@ def generate_content_type_combinations(content_types: List[str] = None) -> List[
     """
     if content_types is None:
         # Default to most common types
-        return ["photo", "video", "carousel", "reel"]
+        return ["image", "video", "carousel", "reel"]
 
     # Filter to valid types only
     return [ct for ct in content_types if ct in CONTENT_TYPES]

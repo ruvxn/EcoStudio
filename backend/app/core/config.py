@@ -2,9 +2,10 @@
 Application configuration management using Pydantic Settings.
 Loads configuration from environment variables with validation.
 """
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import json
 
 
 class Settings(BaseSettings):
@@ -30,15 +31,25 @@ class Settings(BaseSettings):
     # CORS
     FRONTEND_URL: str = "http://localhost:3000"
     BACKEND_URL: str = "http://localhost:8000"
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
+    ALLOWED_ORIGINS: str = Field(
+        default="http://localhost:3000,http://localhost:8000",
+        description="Comma-separated list of allowed CORS origins"
+    )
 
-    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @field_validator("ALLOWED_ORIGINS", mode="after")
     @classmethod
     def parse_cors_origins(cls, v: str) -> List[str]:
         """Parse comma-separated CORS origins into a list."""
         if isinstance(v, str):
+            # Try JSON parsing first (for list format)
+            if v.startswith("["):
+                try:
+                    return json.loads(v)
+                except json.JSONDecodeError:
+                    pass
+            # Fall back to comma-separated
             return [origin.strip() for origin in v.split(",")]
-        return v
+        return v if isinstance(v, list) else [v]
 
     # Instagram API
     INSTAGRAM_CLIENT_ID: str = Field(..., description="Instagram OAuth client ID")

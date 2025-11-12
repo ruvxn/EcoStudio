@@ -12,7 +12,6 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
-    Enum as SQLEnum,
 )
 from sqlalchemy.orm import relationship
 import enum
@@ -77,7 +76,9 @@ class Post(Base):
 
     # Content characteristics
     content_type = Column(
-        SQLEnum(ContentType), nullable=False, comment="Type of content"
+        String(20),
+        nullable=False,
+        comment="Type of content"
     )
     caption_length = Column(
         Integer, nullable=True, comment="Character count of caption"

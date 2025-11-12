@@ -28,7 +28,7 @@ class SocialAccount(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     platform = Column(
-        SQLEnum(PlatformType),
+        SQLEnum(PlatformType, native_enum=False),
         nullable=False,
         comment="Social media platform (instagram, youtube)",
     )

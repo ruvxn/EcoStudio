@@ -71,7 +71,7 @@ CV_FOLDS = 5
 CV_SCORING = "neg_mean_absolute_error"
 
 # Feature Engineering
-CONTENT_TYPES = ["photo", "video", "carousel", "reel", "story"]
+CONTENT_TYPES = ["image", "video", "carousel", "reel", "story"]
 TIME_OF_DAY_BINS = {
     "morning": (6, 12),
     "afternoon": (12, 17),

@@ -46,24 +46,17 @@ class InstagramOAuthService:
 
     def get_authorization_url(self, state: Optional[str] = None) -> str:
         """
-        Generate Instagram authorization URL using Facebook Login for Business.
-
-        For Instagram Graph API (Business), we use Facebook's OAuth endpoints.
+        Generate Instagram authorization URL using Facebook Login.
 
         Args:
-            state: Optional CSRF protection token (recommended in production)
+            state: Optional CSRF protection token
 
         Returns:
             Full authorization URL to redirect user to
-
-        Example:
-            url = service.get_authorization_url(state="random_token_123")
-            # Returns: https://www.facebook.com/v21.0/dialog/oauth?...
         """
         params = {
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
-            # Instagram Graph API permissions
             "scope": "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement,pages_manage_metadata",
             "response_type": "code",
         }
@@ -77,25 +70,19 @@ class InstagramOAuthService:
         self, code: str
     ) -> Dict[str, any]:
         """
-        Exchange authorization code for access token using Facebook Graph API.
-
-        This is step 2 of the OAuth flow, called after user approves permissions.
+        Exchange authorization code for access token.
 
         Args:
-            code: Authorization code from Facebook callback
+            code: Authorization code from callback
 
         Returns:
-            Dictionary containing:
-            - access_token: Access token (for Facebook/Instagram)
-            - token_type: Token type
-            - expires_in: Token expiration time in seconds
+            Dictionary with access_token, token_type, and expires_in
 
         Raises:
             InstagramOAuthError: If token exchange fails
         """
         async with httpx.AsyncClient() as client:
             try:
-                # Exchange code for short-lived Facebook token
                 response = await client.get(
                     f"{self.graph_api_url}/{self.graph_api_version}/oauth/access_token",
                     params={
@@ -126,10 +113,7 @@ class InstagramOAuthService:
         self, short_lived_token: str
     ) -> Dict[str, any]:
         """
-        Exchange short-lived token (1 hour) for long-lived token (60 days).
-
-        Facebook returns short-lived tokens by default. We immediately
-        exchange them for long-lived tokens that last 60 days.
+        Exchange short-lived token for long-lived token (60 days).
 
         Args:
             short_lived_token: Token from initial OAuth exchange
@@ -192,34 +176,21 @@ class InstagramOAuthService:
 
     async def get_user_profile(self, access_token: str) -> Dict[str, any]:
         """
-        Fetch Instagram business account information via Facebook Graph API.
-
-        For Instagram Graph API, we need to:
-        1. Get user's Facebook pages (or use fallback page ID for dev mode)
-        2. Get Instagram business account connected to a page
-        3. Get Instagram account details
+        Fetch Instagram business account information.
 
         Args:
-            access_token: Valid Facebook access token
+            access_token: Valid access token
 
         Returns:
-            Dictionary containing:
-            - id: Instagram business account ID
-            - username: Instagram username
-            - name: Account name
-            - profile_picture_url: Profile picture URL
+            Dictionary with account details (id, username, name, etc.)
 
         Raises:
             InstagramOAuthError: If profile fetch fails
         """
         async with httpx.AsyncClient() as client:
             try:
-                import logging
-                logger = logging.getLogger(__name__)
-
                 page_id = None
 
-                # Step 1: Try to get user's Facebook pages
                 try:
                     pages_response = await client.get(
                         f"{self.graph_api_url}/{self.graph_api_version}/me/accounts",
@@ -229,27 +200,20 @@ class InstagramOAuthService:
                     )
                     pages_response.raise_for_status()
                     pages_data = pages_response.json()
-                    logger.info(f"DEBUG: /me/accounts response: {pages_data}")
 
                     if pages_data.get("data"):
-                        # Use first page from /me/accounts
                         page = pages_data["data"][0]
                         page_id = page["id"]
-                        logger.info(f"DEBUG: Using page from /me/accounts: {page_id}")
-                except Exception as e:
-                    logger.warning(f"DEBUG: /me/accounts failed or empty: {e}")
+                except Exception:
+                    pass
 
-                # Fallback: If /me/accounts is empty (common in dev mode), try direct page access
                 if not page_id:
                     fallback_page_id = settings.INSTAGRAM_FALLBACK_PAGE_ID
                     if not fallback_page_id:
                         raise InstagramOAuthError(
-                            "No Facebook pages found via /me/accounts and INSTAGRAM_FALLBACK_PAGE_ID not set. "
-                            "In development mode, set INSTAGRAM_FALLBACK_PAGE_ID in your .env file."
+                            "No Facebook pages found. Set INSTAGRAM_FALLBACK_PAGE_ID in .env"
                         )
-                    logger.info(f"DEBUG: /me/accounts empty, trying fallback page ID: {fallback_page_id}")
 
-                    # Verify we can access this page
                     try:
                         page_check = await client.get(
                             f"{self.graph_api_url}/{self.graph_api_version}/{fallback_page_id}",
@@ -259,25 +223,17 @@ class InstagramOAuthService:
                             },
                         )
                         page_check.raise_for_status()
-                        page_data = page_check.json()
-                        logger.info(f"DEBUG: Fallback page access successful: {page_data}")
                         page_id = fallback_page_id
                     except httpx.HTTPStatusError as e:
-                        logger.error(f"DEBUG: Fallback page access failed: {e.response.text}")
                         raise InstagramOAuthError(
-                            "No Facebook pages found via /me/accounts and fallback page access failed. "
-                            "This usually happens in development mode. Please ensure:\n"
-                            "1. You are added as a Developer/Admin in the Facebook App settings\n"
-                            "2. Your Facebook page is connected to your Instagram business account\n"
-                            "3. The app has the required permissions: pages_show_list, instagram_basic"
+                            f"Failed to access Facebook page: {e.response.text}"
                         )
 
                 if not page_id:
                     raise InstagramOAuthError(
-                        "Could not determine Facebook page ID. Please check your app configuration."
+                        "Could not determine Facebook page ID"
                     )
 
-                # Step 2: Get Instagram account for the page
                 ig_account_response = await client.get(
                     f"{self.graph_api_url}/{self.graph_api_version}/{page_id}",
                     params={
@@ -287,18 +243,14 @@ class InstagramOAuthService:
                 )
                 ig_account_response.raise_for_status()
                 ig_data = ig_account_response.json()
-                logger.info(f"DEBUG: Instagram account lookup: {ig_data}")
 
                 if "instagram_business_account" not in ig_data:
                     raise InstagramOAuthError(
-                        f"No Instagram business account connected to Facebook page (ID: {page_id}). "
-                        "Please connect an Instagram business account to your Facebook page."
+                        "No Instagram business account connected to Facebook page"
                     )
 
                 ig_account_id = ig_data["instagram_business_account"]["id"]
-                logger.info(f"DEBUG: Instagram Business Account ID: {ig_account_id}")
 
-                # Step 3: Get Instagram account details
                 profile_response = await client.get(
                     f"{self.graph_api_url}/{self.graph_api_version}/{ig_account_id}",
                     params={
@@ -308,7 +260,6 @@ class InstagramOAuthService:
                 )
                 profile_response.raise_for_status()
                 profile_data = profile_response.json()
-                logger.info(f"DEBUG: Instagram profile: {profile_data}")
                 return profile_data
 
             except httpx.HTTPStatusError as e:

@@ -140,11 +140,8 @@ class InstagramSyncService:
         """
         Fetch all media items from Instagram Business account with pagination.
 
-        For Instagram Graph API (Business), we need to use the Instagram
-        Business Account ID to fetch media.
-
         Args:
-            access_token: Valid Facebook access token
+            access_token: Valid access token
             cutoff_date: Stop fetching posts older than this date
             account: SocialAccount with Instagram business account ID
 
@@ -152,7 +149,6 @@ class InstagramSyncService:
             List of media items (posts)
         """
         all_media = []
-        # Use the Instagram Business Account ID from the account
         ig_account_id = account.account_id
 
         url = f"{self.graph_api_url}/{self.graph_api_version}/{ig_account_id}/media"
@@ -260,23 +256,18 @@ class InstagramSyncService:
 
     def _map_content_type(self, media_type: str, media_product_type: str = None) -> ContentType:
         """
-        Map Instagram media type to our ContentType enum.
-
-        For Instagram Graph API (Business), we check both media_type and
-        media_product_type to distinguish reels from regular videos.
+        Map Instagram media type to ContentType enum.
 
         Args:
-            media_type: Instagram media type (IMAGE, VIDEO, CAROUSEL_ALBUM)
-            media_product_type: Instagram product type (REELS, FEED, STORY, etc.)
+            media_type: Instagram media type
+            media_product_type: Instagram product type
 
         Returns:
             ContentType enum value
         """
-        # Check if it's a reel first
         if media_product_type == "REELS":
             return ContentType.REEL
 
-        # Map standard types
         mapping = {
             "IMAGE": ContentType.IMAGE,
             "VIDEO": ContentType.VIDEO,

@@ -83,16 +83,12 @@ app.add_middleware(
 # Health check endpoint
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """
-    Health check endpoint for load balancers and monitoring.
-    Includes scheduler status for Phase 2.
-    """
+    """Health check endpoint with scheduler status."""
     checks = {
         "api": "healthy",
         "scheduler": "unknown"
     }
 
-    # Check scheduler status
     if hasattr(app.state, 'scheduler') and app.state.scheduler:
         try:
             scheduler_running = app.state.scheduler.scheduler.running

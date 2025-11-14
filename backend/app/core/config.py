@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     )
     INSTAGRAM_API_VERSION: str = "v21.0"
     INSTAGRAM_GRAPH_API_BASE: str = "https://graph.instagram.com"
+    INSTAGRAM_FALLBACK_PAGE_ID: Optional[str] = None
 
     # ElectricityMap API (Phase 2)
     ELECTRICITY_MAP_API_KEY: Optional[str] = None

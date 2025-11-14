@@ -53,6 +53,15 @@ services:
       - FRONTEND_URL=http://localhost:3000
       - BACKEND_URL=http://localhost:8000
       - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8000
+      # Phase 2: Carbon-Aware Scheduling
+      - ELECTRICITY_MAP_API_KEY=${ELECTRICITY_MAP_API_KEY:-}
+      - ELECTRICITY_MAP_REGION=${ELECTRICITY_MAP_REGION:-AU-VIC}
+      # Phase 3: Content Generation (for future use)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Instagram OAuth
+      - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID:-}
+      - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET:-}
+      - INSTAGRAM_REDIRECT_URI=${INSTAGRAM_REDIRECT_URI:-http://localhost:8000/api/v1/accounts/instagram/callback}
     ports:
       - "8000:8000"
     volumes:

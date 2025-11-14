@@ -4,7 +4,7 @@ Instagram data synchronization service for fetching historical posts.
 Fetches posts from Instagram Graph API and stores them in the database
 for ML model training.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 import httpx
 import re
@@ -33,14 +33,15 @@ class InstagramSyncService:
     """
 
     def __init__(self):
-        self.graph_api_url = "https://graph.instagram.com"
+        self.graph_api_url = "https://graph.facebook.com"
+        self.graph_api_version = "v21.0"
         self.rate_limit_delay = 1  # Seconds between requests
 
     async def sync_posts(
         self,
         db: Session,
         account: SocialAccount,
-        days: int = 90,
+        days: int = 730,
         force_refresh: bool = False,
     ) -> Dict[str, any]:
         """
@@ -49,7 +50,7 @@ class InstagramSyncService:
         Args:
             db: Database session
             account: SocialAccount to sync
-            days: Number of days to sync (1-365)
+            days: Number of days to sync (default 730 = 2 years to get all posts)
             force_refresh: If True, re-fetch even if recently synced
 
         Returns:
@@ -66,7 +67,7 @@ class InstagramSyncService:
         # Check if we should skip (recently synced)
         if not force_refresh and account.last_sync_at:
             hours_since_sync = (
-                datetime.utcnow() - account.last_sync_at
+                datetime.now(timezone.utc) - account.last_sync_at
             ).total_seconds() / 3600
             if hours_since_sync < 6:  # Don't sync more than once every 6 hours
                 raise InstagramSyncError(
@@ -80,8 +81,8 @@ class InstagramSyncService:
         )
 
         # Fetch posts from Instagram
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
-        posts_data = await self._fetch_all_media(access_token, cutoff_date)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+        posts_data = await self._fetch_all_media(access_token, cutoff_date, account)
 
         # Process and store posts
         posts_new = 0
@@ -122,7 +123,7 @@ class InstagramSyncService:
                 posts_new += 1
 
         # Update account sync timestamp
-        account.last_sync_at = datetime.utcnow()
+        account.last_sync_at = datetime.now(timezone.utc)
         db.commit()
 
         return {
@@ -134,26 +135,26 @@ class InstagramSyncService:
         }
 
     async def _fetch_all_media(
-        self, access_token: str, cutoff_date: datetime
+        self, access_token: str, cutoff_date: datetime, account: SocialAccount
     ) -> List[Dict]:
         """
-        Fetch all media items from Instagram with pagination.
-
-        Instagram API returns results in pages (default 25 items per page).
-        We fetch all pages until we reach the cutoff date or run out of posts.
+        Fetch all media items from Instagram Business account with pagination.
 
         Args:
-            access_token: Valid Instagram access token
+            access_token: Valid access token
             cutoff_date: Stop fetching posts older than this date
+            account: SocialAccount with Instagram business account ID
 
         Returns:
             List of media items (posts)
         """
         all_media = []
-        url = f"{self.graph_api_url}/me/media"
+        ig_account_id = account.account_id
+
+        url = f"{self.graph_api_url}/{self.graph_api_version}/{ig_account_id}/media"
         params = {
             "fields": "id,caption,media_type,media_url,thumbnail_url,permalink,"
-            "timestamp,like_count,comments_count,username",
+            "timestamp,like_count,comments_count,media_product_type",
             "access_token": access_token,
             "limit": 100,  # Max items per request
         }
@@ -220,7 +221,10 @@ class InstagramSyncService:
             likes=post_data.get("like_count", 0),
             comments=post_data.get("comments_count", 0),
             shares=0,  # Instagram API doesn't provide share count
-            content_type=self._map_content_type(post_data.get("media_type")),
+            content_type=self._map_content_type(
+                post_data.get("media_type"),
+                post_data.get("media_product_type")
+            ),
             caption_length=len(caption) if caption else 0,
             hashtag_count=self._count_hashtags(caption),
             has_emoji=1 if self._contains_emoji(caption) else 0,
@@ -248,18 +252,22 @@ class InstagramSyncService:
         post.likes = post_data.get("like_count", 0)
         post.comments = post_data.get("comments_count", 0)
         post.engagement_score = post.calculate_engagement_score(follower_count)
-        post.updated_at = datetime.utcnow()
+        post.updated_at = datetime.now(timezone.utc)
 
-    def _map_content_type(self, media_type: str) -> ContentType:
+    def _map_content_type(self, media_type: str, media_product_type: str = None) -> ContentType:
         """
-        Map Instagram media type to our ContentType enum.
+        Map Instagram media type to ContentType enum.
 
         Args:
-            media_type: Instagram media type (IMAGE, VIDEO, CAROUSEL_ALBUM)
+            media_type: Instagram media type
+            media_product_type: Instagram product type
 
         Returns:
             ContentType enum value
         """
+        if media_product_type == "REELS":
+            return ContentType.REEL
+
         mapping = {
             "IMAGE": ContentType.IMAGE,
             "VIDEO": ContentType.VIDEO,

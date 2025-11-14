@@ -3,7 +3,7 @@ Carbon forecast model for storing electricity carbon intensity predictions.
 Used in Phase 2 for eco-scheduling compute-intensive tasks.
 """
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Index, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Index, UniqueConstraint
 
 from app.core.database import Base
 
@@ -37,6 +37,12 @@ class CarbonForecast(Base):
         Integer,
         nullable=False,
         comment="Carbon intensity in grams CO2 per kWh",
+    )
+    is_renewable_high = Column(
+        Boolean,
+        nullable=True,
+        default=False,
+        comment="True if renewable energy percentage > 70%",
     )
     source = Column(
         String(100),

@@ -69,6 +69,9 @@ def init_db() -> None:
         carbon_forecasts,
         job_queue,
         execution_logs,
+        green_windows,
+        carbon_savings,
+        system_config,
     )
 
     Base.metadata.create_all(bind=engine)

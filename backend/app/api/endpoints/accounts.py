@@ -108,6 +108,7 @@ async def instagram_oauth_callback(
             user_id=profile["id"],
             expires_in=token_data["expires_in"],
             username=profile.get("username"),
+            follower_count=profile.get("followers_count"),
         )
 
         return OAuthCallbackResponse(

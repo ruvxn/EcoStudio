@@ -9,8 +9,9 @@ from fastapi.responses import JSONResponse
 import logging
 
 from app.core.config import settings
-from app.core.database import init_db
-from app.api.endpoints import accounts, predictions, scheduled_posts
+from app.core.database import init_db, SessionLocal
+from app.api.endpoints import accounts, predictions, scheduled_posts, carbon, jobs
+from app.services.eco_scheduler import EcoScheduler
 
 # Configure logging
 logging.basicConfig(
@@ -39,15 +40,24 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize database: {e}")
         raise
 
-    # TODO: Start APScheduler for background jobs
-    # scheduler.start()
+    # Start EcoScheduler for background jobs
+    try:
+        scheduler = EcoScheduler(SessionLocal)
+        await scheduler.start()
+        app.state.scheduler = scheduler
+        logger.info("EcoScheduler initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize scheduler: {e}")
+        # Continue without scheduler for development
+        app.state.scheduler = None
 
     yield
 
     # Shutdown
     logger.info("Shutting down EcoTrainer Studio API...")
-    # TODO: Shutdown scheduler
-    # scheduler.shutdown()
+    if hasattr(app.state, 'scheduler') and app.state.scheduler:
+        app.state.scheduler.shutdown()
+        logger.info("EcoScheduler shut down successfully")
 
 
 # Create FastAPI app
@@ -73,14 +83,29 @@ app.add_middleware(
 # Health check endpoint
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """
-    Health check endpoint for load balancers and monitoring.
-    """
+    """Health check endpoint with scheduler status."""
+    checks = {
+        "api": "healthy",
+        "scheduler": "unknown"
+    }
+
+    if hasattr(app.state, 'scheduler') and app.state.scheduler:
+        try:
+            scheduler_running = app.state.scheduler.scheduler.running
+            checks["scheduler"] = "healthy" if scheduler_running else "stopped"
+        except:
+            checks["scheduler"] = "unhealthy"
+    else:
+        checks["scheduler"] = "not_initialized"
+
+    all_healthy = checks["api"] == "healthy" and checks["scheduler"] in ["healthy", "not_initialized"]
+
     return JSONResponse(
         content={
-            "status": "healthy",
+            "status": "healthy" if all_healthy else "degraded",
             "version": settings.VERSION,
             "environment": settings.ENVIRONMENT,
+            "checks": checks
         }
     )
 
@@ -115,6 +140,18 @@ app.include_router(
     scheduled_posts.router,
     prefix=f"{settings.API_V1_STR}/content",
     tags=["Scheduled Posts"],
+)
+
+app.include_router(
+    carbon.router,
+    prefix=f"{settings.API_V1_STR}/carbon",
+    tags=["Carbon"],
+)
+
+app.include_router(
+    jobs.router,
+    prefix=f"{settings.API_V1_STR}/jobs",
+    tags=["Jobs"],
 )
 
 

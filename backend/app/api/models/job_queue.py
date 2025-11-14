@@ -7,6 +7,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Float,
     DateTime,
     ForeignKey,
     Index,
@@ -74,6 +75,26 @@ class Job(Base):
         nullable=True,
         comment="Carbon intensity at scheduled time (Phase 2)",
     )
+    estimated_duration_minutes = Column(
+        Integer,
+        nullable=True,
+        comment="Estimated job duration for scheduling (Phase 2)",
+    )
+    optimal_window_start = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Recommended green window start time (Phase 2)",
+    )
+    optimal_window_end = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Recommended green window end time (Phase 2)",
+    )
+    carbon_score = Column(
+        Float,
+        nullable=True,
+        comment="Carbon optimization score 0-1 (Phase 2)",
+    )
     status = Column(
         SQLEnum(JobStatus),
         nullable=False,
@@ -124,6 +145,9 @@ class Job(Base):
     account = relationship("SocialAccount", back_populates="jobs")
     execution_logs = relationship(
         "ExecutionLog", back_populates="job", cascade="all, delete-orphan"
+    )
+    carbon_saving = relationship(
+        "CarbonSaving", back_populates="job", uselist=False, cascade="all, delete-orphan"
     )
 
     # Indexes

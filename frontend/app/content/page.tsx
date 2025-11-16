@@ -23,6 +23,7 @@ export default function ContentPage() {
   const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
   const [editContent, setEditContent] = useState('');
   const [generating, setGenerating] = useState<number | null>(null);
+  const [generatingImage, setGeneratingImage] = useState<number | null>(null);
 
   useEffect(() => {
     loadAccounts();
@@ -200,6 +201,23 @@ export default function ContentPage() {
       setMessage({ type: 'error', text: error.response?.data?.detail || 'Failed to generate content' });
     } finally {
       setGenerating(null);
+    }
+  };
+
+  const handleGenerateImage = async (postId: number, regenerate: boolean = false) => {
+    setGeneratingImage(postId);
+    try {
+      const result = await scheduledPostsAPI.generateImage(postId, 'realistic', regenerate);
+      setMessage({
+        type: 'success',
+        text: `Image generated in ${result.generation_time}s`,
+      });
+      await loadPosts();
+    } catch (error: any) {
+      console.error('Failed to generate image:', error);
+      setMessage({ type: 'error', text: error.response?.data?.detail || 'Failed to generate image' });
+    } finally {
+      setGeneratingImage(null);
     }
   };
 
@@ -400,6 +418,14 @@ export default function ContentPage() {
                     {post.status === 'GENERATED' && (
                       <>
                         <button
+                          onClick={() => handleGenerateImage(post.id, !!post.image_url)}
+                          disabled={generatingImage === post.id}
+                          className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors disabled:opacity-50"
+                          title={post.image_url ? 'Regenerate image' : 'Generate image'}
+                        >
+                          {generatingImage === post.id ? 'Generating...' : post.image_url ? 'Regenerate' : 'Generate Image'}
+                        </button>
+                        <button
                           onClick={() => handleStartEdit(post)}
                           className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors"
                         >
@@ -435,6 +461,17 @@ export default function ContentPage() {
                     </button>
                   </div>
                 </div>
+
+                {/* Generated Image Preview */}
+                {post.image_url && (
+                  <div className="mb-4">
+                    <img
+                      src={post.image_url}
+                      alt="Generated post image"
+                      className="w-full max-w-md rounded-lg shadow-md"
+                    />
+                  </div>
+                )}
 
                 <div className="bg-gray-50 rounded-lg p-4">
                   {editingPost?.id === post.id ? (

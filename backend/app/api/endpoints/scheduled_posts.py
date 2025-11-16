@@ -19,6 +19,7 @@ from app.api.models.scheduled_posts import ScheduledPost, PostStatus
 from app.services.content_generation_service import ContentGenerationService
 from app.services.instagram_posting_service import InstagramPostingService
 from app.services.eco_scheduler import EcoScheduler
+from app.services.runway_image_service import RunwayImageService
 from app.api.validators import validate_account_exists, validate_scheduled_post_exists
 
 router = APIRouter()
@@ -347,4 +348,101 @@ async def publish_now(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to publish post: {str(e)}",
+        )
+
+
+@router.post("/{post_id}/generate-image", response_model=dict)
+async def generate_image_for_post(
+    post_id: int,
+    style: str = Query("realistic", description="Image style: realistic, artistic, minimalist, vibrant"),
+    regenerate: bool = Query(False, description="Regenerate even if image exists"),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    Generate an AI image for a scheduled post using Runway AI.
+
+    This endpoint will:
+    1. Get the post caption
+    2. Generate an optimized image prompt
+    3. Call Runway AI to generate the image
+    4. Update the post with the image URL
+
+    Args:
+        post_id: ID of the scheduled post
+        style: Image generation style (realistic, artistic, minimalist, vibrant)
+        regenerate: Force regeneration even if image exists
+        db: Database session
+
+    Returns:
+        Image generation result with URL
+    """
+    runway_service = RunwayImageService(db)
+
+    try:
+        result = await runway_service.generate_image_for_post(
+            scheduled_post_id=post_id,
+            style=style,
+            regenerate=regenerate
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate image: {str(e)}",
+        )
+
+
+@router.post("/generate-missing-images", response_model=dict)
+async def generate_missing_images(
+    account_id: Optional[int] = Query(None, description="Filter by account ID"),
+    limit: int = Query(10, ge=1, le=50, description="Max posts to process"),
+    style: str = Query("realistic", description="Image style: realistic, artistic, minimalist, vibrant"),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    Batch generate images for all posts that have captions but no images.
+
+    This is useful for:
+    - Fixing posts that failed image generation
+    - Adding images to posts created before image generation was enabled
+    - Bulk processing multiple posts at once
+
+    Args:
+        account_id: Optional filter by account ID
+        limit: Maximum number of posts to process (1-50)
+        style: Image generation style
+        db: Database session
+
+    Returns:
+        List of generation results
+    """
+    runway_service = RunwayImageService(db)
+
+    try:
+        results = await runway_service.generate_images_for_pending_posts(
+            account_id=account_id,
+            limit=limit,
+            style=style
+        )
+
+        successful = len([r for r in results if r.get('status') == 'generated'])
+        failed = len([r for r in results if r.get('status') == 'failed'])
+        skipped = len([r for r in results if r.get('status') == 'skipped'])
+
+        return {
+            "total_processed": len(results),
+            "successful": successful,
+            "failed": failed,
+            "skipped": skipped,
+            "results": results
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate images: {str(e)}",
         )

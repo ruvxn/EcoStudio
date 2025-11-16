@@ -15,6 +15,7 @@ import os
 
 from app.api.models.posts import Post
 from app.api.models.scheduled_posts import ScheduledPost
+from app.services.runway_image_service import RunwayImageService
 
 
 class ContentGenerationService:
@@ -420,6 +421,87 @@ Hashtags:"""
             "avg_hashtag_count": 3,
             "sample_captions": []
         }
+
+    async def generate_caption_with_image(
+        self,
+        account_id: int,
+        content_type: str = "IMAGE",
+        topic: Optional[str] = None,
+        target_sentiment: str = "engaging",
+        custom_instructions: Optional[str] = None,
+        image_style: str = "realistic"
+    ) -> Dict:
+        """
+        Generate both caption and image for a post.
+
+        Args:
+            account_id: Social account ID
+            content_type: IMAGE, VIDEO, CAROUSEL, REEL
+            topic: Optional topic/theme for the post
+            target_sentiment: engaging, inspirational, educational, funny
+            custom_instructions: Additional generation instructions
+            image_style: Image style (realistic, artistic, minimalist, vibrant)
+
+        Returns:
+            {
+                "caption": "Generated caption text",
+                "hashtags": ["#tag1", "#tag2"],
+                "image_url": "https://...",
+                "image_prompt": "The prompt used for image generation",
+                "tokens_used": 150,
+                "generation_time": 1.2,
+                "image_generation_time": 5.5,
+                "style_used": {...},
+                "model": "gpt-4o-mini"
+            }
+        """
+        # First, generate the caption
+        caption_result = await self.generate_caption(
+            account_id=account_id,
+            content_type=content_type,
+            topic=topic,
+            target_sentiment=target_sentiment,
+            custom_instructions=custom_instructions
+        )
+
+        # Then, generate the image based on the caption
+        try:
+            runway_service = RunwayImageService(self.db)
+
+            # Generate image prompt from the caption
+            image_prompt = await runway_service.generate_image_prompt(
+                caption=caption_result["caption"],
+                topic=topic,
+                style=image_style,
+                aspect_ratio="1:1"
+            )
+
+            # Generate the image
+            image_result = await runway_service.generate_image(
+                prompt=image_prompt,
+                model="gen3a_turbo",
+                width=1024,
+                height=1024,
+                num_images=1
+            )
+
+            # Combine results
+            return {
+                **caption_result,
+                "image_url": image_result["image_url"],
+                "image_prompt": image_prompt,
+                "image_task_id": image_result["task_id"],
+                "image_generation_time": image_result["generation_time"],
+                "image_model": image_result["model"]
+            }
+
+        except Exception as e:
+            # If image generation fails, still return the caption
+            return {
+                **caption_result,
+                "image_url": None,
+                "image_error": str(e)
+            }
 
     async def schedule_generation_job(
         self,

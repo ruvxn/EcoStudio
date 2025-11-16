@@ -339,11 +339,12 @@ class EcoScheduler:
             raise
 
     async def _execute_content_generation(self, job: Job, db: AsyncSession):
-        """Execute content generation for a scheduled post."""
+        """Execute content generation (caption + image) for a scheduled post."""
         logger.info(f"Generating content for job {job.id}")
 
         try:
             from app.services.content_generation_service import ContentGenerationService
+            from app.services.runway_image_service import RunwayImageService
             from app.api.models.scheduled_posts import ScheduledPost, PostStatus
 
             # Get scheduled post ID from job metadata
@@ -361,31 +362,60 @@ class EcoScheduler:
             if not post:
                 raise ValueError(f"Scheduled post {scheduled_post_id} not found")
 
-            # Generate content
+            # Generate caption
             content_service = ContentGenerationService(db)
-            result = await content_service.generate_caption(
+            caption_result = await content_service.generate_caption(
                 account_id=job.account_id,
                 content_type=post.content_type or "IMAGE",
                 topic=job.result.get('topic')
             )
 
-            # Update scheduled post with generated content
-            post.content = result['caption']
+            # Update scheduled post with generated caption
+            post.content = caption_result['caption']
             post.status = PostStatus.GENERATED
             post.generation_job_id = job.id
 
             await db.commit()
 
-            # Store result in job
-            job.result = {
+            # Prepare job result
+            job_result = {
                 'content_generated': True,
                 'scheduled_post_id': scheduled_post_id,
-                'caption_length': len(result['caption']),
-                'hashtags_count': len(result['hashtags']),
-                'tokens_used': result['tokens_used'],
-                'generation_time': result['generation_time'],
+                'caption_length': len(caption_result['caption']),
+                'hashtags_count': len(caption_result['hashtags']),
+                'tokens_used': caption_result['tokens_used'],
+                'generation_time': caption_result['generation_time'],
                 'timestamp': datetime.utcnow().isoformat()
             }
+
+            # Generate image using Runway AI
+            try:
+                logger.info(f"Generating image for post {scheduled_post_id}")
+                runway_service = RunwayImageService(db)
+
+                image_result = await runway_service.generate_image_for_post(
+                    scheduled_post_id=scheduled_post_id,
+                    style="realistic",
+                    regenerate=False
+                )
+
+                # Add image details to job result
+                job_result['image_generated'] = True
+                job_result['image_url'] = image_result.get('image_url')
+                job_result['image_generation_time'] = image_result.get('generation_time')
+                job_result['image_prompt'] = image_result.get('image_prompt', '')[:100]  # Truncate for storage
+
+                logger.info(f"Image generated successfully for post {scheduled_post_id}: {image_result.get('image_url')}")
+
+            except Exception as img_error:
+                # Log the error but don't fail the entire job
+                # The caption was generated successfully
+                logger.warning(f"Image generation failed for post {scheduled_post_id}: {img_error}")
+                job_result['image_generated'] = False
+                job_result['image_error'] = str(img_error)
+
+            # Store final result in job
+            job.result = job_result
 
             logger.info(f"Content generated successfully for post {scheduled_post_id}")
 

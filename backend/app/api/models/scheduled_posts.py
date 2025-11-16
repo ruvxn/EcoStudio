@@ -9,6 +9,7 @@ from sqlalchemy import (
     Text,
     DateTime,
     Float,
+    Boolean,
     ForeignKey,
     Index,
     Enum as SQLEnum,
@@ -23,12 +24,12 @@ from app.api.models.posts import ContentType
 class PostStatus(str, enum.Enum):
     """Status of a scheduled post."""
 
-    PENDING = "pending"  # Awaiting content generation
-    GENERATED = "generated"  # Content generated, awaiting approval
-    APPROVED = "approved"  # User approved, ready to post
-    POSTED = "posted"  # Successfully posted
-    FAILED = "failed"  # Posting failed
-    CANCELLED = "cancelled"  # User cancelled
+    PENDING = "PENDING"  # Awaiting content generation
+    GENERATED = "GENERATED"  # Content generated, awaiting approval
+    APPROVED = "APPROVED"  # User approved, ready to post
+    POSTED = "POSTED"  # Successfully posted
+    FAILED = "FAILED"  # Posting failed
+    CANCELLED = "CANCELLED"  # User cancelled
 
 
 class ScheduledPost(Base):
@@ -101,6 +102,30 @@ class ScheduledPost(Base):
         ForeignKey("job_queue.id"),
         nullable=True,
         comment="Reference to content generation job",
+    )
+    posting_job_id = Column(
+        Integer,
+        ForeignKey("job_queue.id"),
+        nullable=True,
+        comment="Reference to posting job",
+    )
+    user_approved = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Whether user has approved the generated content",
+    )
+    user_edited = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Whether user has manually edited the content",
+    )
+    auto_post_enabled = Column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Whether to automatically post at scheduled time",
     )
     created_at = Column(
         DateTime(timezone=True),

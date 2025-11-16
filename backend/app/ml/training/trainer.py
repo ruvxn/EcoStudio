@@ -99,7 +99,7 @@ class ModelTrainer:
         print(f"Using advanced features: {use_advanced}")
 
         # Step 4: Select and configure model
-        if use_random_forest or n_posts < 50:
+        if use_random_forest or n_posts <= 50:
             print("Using Random Forest model...")
             self.model = RandomForestRegressor(**RANDOM_FOREST_CONFIG)
             model_type = "random_forest"
@@ -111,14 +111,27 @@ class ModelTrainer:
 
         # Step 5: Cross-validation
         print(f"Performing {CV_FOLDS}-fold cross-validation...")
-        cv_scores = cross_val_score(
-            self.model,
-            X_train_features,
-            y_train_array,
-            cv=CV_FOLDS,
-            scoring=CV_SCORING,
-            n_jobs=-1,
-        )
+
+        def _run_cv(estimator):
+            return cross_val_score(
+                estimator,
+                X_train_features,
+                y_train_array,
+                cv=CV_FOLDS,
+                scoring=CV_SCORING,
+                n_jobs=-1,
+            )
+
+        try:
+            cv_scores = _run_cv(self.model)
+        except AttributeError as exc:
+            if "__sklearn_tags__" in str(exc):
+                print("Estimator is missing sklearn tag support. Falling back to Random Forest.")
+                self.model = RandomForestRegressor(**RANDOM_FOREST_CONFIG)
+                model_type = "random_forest"
+                cv_scores = _run_cv(self.model)
+            else:
+                raise
         cv_mae = -cv_scores.mean()  # Negative because sklearn uses negative MAE
         cv_std = cv_scores.std()
 

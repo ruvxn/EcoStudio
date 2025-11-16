@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 import time
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from app.core.database import get_db
 from app.api.schemas import (
@@ -18,6 +20,28 @@ from app.services.ml_service import MLService
 
 router = APIRouter()
 
+# Thread pool for CPU-intensive ML operations
+ml_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ml_training")
+
+
+def _train_model_sync(account_id: int, force_retrain: bool, db: Session):
+    """
+    Synchronous training function to run in thread pool.
+
+    Args:
+        account_id: Social account ID
+        force_retrain: Force retraining even if recent model exists
+        db: Database session
+
+    Returns:
+        Training result dictionary
+    """
+    ml_service = MLService(db)
+    return ml_service.train_model(
+        account_id=account_id,
+        force_retrain=force_retrain,
+    )
+
 
 @router.post("/train", response_model=TrainModelResponse)
 async def train_model(
@@ -27,6 +51,9 @@ async def train_model(
     """
     Trigger ML model retraining for an account.
 
+    This endpoint runs training in a background thread to avoid blocking
+    the async event loop and freezing the application.
+
     Args:
         request: Training request with account ID
         db: Database session
@@ -34,14 +61,17 @@ async def train_model(
     Returns:
         Training job status and model metrics
     """
-    ml_service = MLService(db)
-
     start_time = time.time()
 
     try:
-        result = ml_service.train_model(
-            account_id=request.account_id,
-            force_retrain=request.force_retrain,
+        # Run training in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            ml_executor,
+            _train_model_sync,
+            request.account_id,
+            request.force_retrain,
+            db
         )
 
         duration = int(time.time() - start_time)
@@ -53,7 +83,7 @@ async def train_model(
             message=result.get("message", "Model trained successfully"),
             model_version=metrics.get("model_version", "unknown"),
             training_samples=metrics.get("n_posts", 0),
-            model_accuracy=metrics.get("test_r2", 0.0),
+            accuracy=metrics.get("test_r2", 0.0),
             training_duration_seconds=duration,
             job_id=None,
         )

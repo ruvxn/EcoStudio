@@ -4,7 +4,7 @@ Finds the greenest execution windows based on carbon intensity forecasts.
 """
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -52,7 +52,7 @@ class GreenWindowFinder:
             Dict with window_start, window_end, carbon_intensity, score
             or None if no suitable window found
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Ensure before_time is in the future
         if before_time <= now:
@@ -140,7 +140,7 @@ class GreenWindowFinder:
             Dict with carbon savings metrics
         """
         # Get average carbon intensity for the region (7-day window)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         avg_query = self.db.query(CarbonForecast).filter(
             and_(
                 CarbonForecast.region == self.region,
@@ -216,7 +216,7 @@ class GreenWindowFinder:
             carbon_saved_grams=savings_data['carbon_saved_grams'],
             energy_used_kwh=savings_data['energy_used_kwh'],
             calculation_method=savings_data.get('calculation_method', 'baseline_comparison'),
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
 
         self.db.add(carbon_saving)
@@ -237,7 +237,7 @@ class GreenWindowFinder:
         Returns:
             List of GreenWindow objects
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         end_time = now + timedelta(hours=hours_ahead)
 
         windows = self.db.query(GreenWindow).filter(

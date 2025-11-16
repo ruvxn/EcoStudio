@@ -8,8 +8,8 @@ from typing import Optional, Dict
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select
 
 from app.api.models.job_queue import Job, JobType, JobStatus
 from app.api.models.social_accounts import SocialAccount
@@ -50,10 +50,10 @@ class EcoScheduler:
             replace_existing=True
         )
 
-        # Job 2: Execute pending jobs every 30 minutes
+        # Job 2: Execute pending jobs every 2 minutes
         self.scheduler.add_job(
             self.execute_pending_jobs,
-            IntervalTrigger(minutes=30),
+            IntervalTrigger(minutes=2),
             id='execute_pending_jobs',
             name='Execute Pending Jobs',
             replace_existing=True
@@ -85,83 +85,82 @@ class EcoScheduler:
         """Update carbon forecasts from ElectricityMap API."""
         logger.info(f"[{datetime.utcnow()}] Running scheduled carbon forecast update")
 
-        db = self.db_session_factory()
-        try:
-            carbon_service = CarbonForecastService(db)
-            count = await carbon_service.update_forecasts()
-            logger.info(f"Carbon forecast update completed: {count} entries")
-        except Exception as e:
-            logger.error(f"Error updating carbon forecasts: {e}", exc_info=True)
-        finally:
-            db.close()
+        async with self.db_session_factory() as db:
+            try:
+                carbon_service = CarbonForecastService(db)
+                count = await carbon_service.update_forecasts()
+                logger.info(f"Carbon forecast update completed: {count} entries")
+            except Exception as e:
+                logger.error(f"Error updating carbon forecasts: {e}", exc_info=True)
 
     async def execute_pending_jobs(self):
         """Check for jobs that should execute now."""
         logger.info(f"[{datetime.utcnow()}] Checking for pending jobs...")
 
-        db = self.db_session_factory()
-        try:
-            # Find jobs whose scheduled time has arrived
-            now = datetime.utcnow()
-            jobs = db.query(Job).filter(
-                and_(
-                    Job.status == JobStatus.QUEUED,
-                    Job.scheduled_for <= now
+        async with self.db_session_factory() as db:
+            try:
+                # Find jobs whose scheduled time has arrived
+                now = datetime.utcnow()
+                query = select(Job).where(
+                    and_(
+                        Job.status == JobStatus.QUEUED,
+                        Job.scheduled_for <= now
+                    )
+                ).order_by(
+                    Job.priority.asc(),  # Lower priority number = higher priority
+                    Job.scheduled_for.asc()
                 )
-            ).order_by(
-                Job.priority.asc(),  # Lower priority number = higher priority
-                Job.scheduled_for.asc()
-            ).all()
 
-            if jobs:
-                logger.info(f"Found {len(jobs)} pending jobs to execute")
-                for job in jobs:
-                    await self.execute_job(job, db)
-            else:
-                logger.debug("No pending jobs to execute")
+                result = await db.execute(query)
+                jobs = result.scalars().all()
 
-        except Exception as e:
-            logger.error(f"Error executing pending jobs: {e}", exc_info=True)
-        finally:
-            db.close()
+                if jobs:
+                    logger.info(f"Found {len(jobs)} pending jobs to execute")
+                    for job in jobs:
+                        await self.execute_job(job, db)
+                else:
+                    logger.debug("No pending jobs to execute")
+
+            except Exception as e:
+                logger.error(f"Error executing pending jobs: {e}", exc_info=True)
 
     async def schedule_weekly_retraining(self):
         """Schedule model retraining for all accounts in green windows."""
         logger.info(f"[{datetime.utcnow()}] Scheduling weekly model retraining...")
 
-        db = self.db_session_factory()
-        try:
-            # Get all active Instagram accounts
-            accounts = db.query(SocialAccount).filter(
-                SocialAccount.platform == 'instagram'
-            ).all()
-
-            logger.info(f"Found {len(accounts)} accounts for retraining")
-
-            for account in accounts:
-                # Schedule retraining before next Sunday midnight
-                next_week = datetime.utcnow() + timedelta(days=7)
-
-                job_id = await self.schedule_job(
-                    db=db,
-                    job_type=JobType.RETRAIN_MODEL,
-                    account_id=account.id,
-                    before_time=next_week,
-                    duration_minutes=30,  # Model retraining ~30 min
-                    use_green_window=True,
-                    metadata={'scheduled_by': 'weekly_cron'}
+        async with self.db_session_factory() as db:
+            try:
+                # Get all active Instagram accounts
+                query = select(SocialAccount).where(
+                    SocialAccount.platform == 'instagram'
                 )
+                result = await db.execute(query)
+                accounts = result.scalars().all()
 
-                logger.info(f"Scheduled retraining job {job_id} for account {account.id}")
+                logger.info(f"Found {len(accounts)} accounts for retraining")
 
-        except Exception as e:
-            logger.error(f"Error scheduling weekly retraining: {e}", exc_info=True)
-        finally:
-            db.close()
+                for account in accounts:
+                    # Schedule retraining before next Sunday midnight
+                    next_week = datetime.utcnow() + timedelta(days=7)
+
+                    job_id = await self.schedule_job(
+                        db=db,
+                        job_type=JobType.RETRAIN_MODEL,
+                        account_id=account.id,
+                        before_time=next_week,
+                        duration_minutes=30,  # Model retraining ~30 min
+                        use_green_window=True,
+                        metadata={'scheduled_by': 'weekly_cron'}
+                    )
+
+                    logger.info(f"Scheduled retraining job {job_id} for account {account.id}")
+
+            except Exception as e:
+                logger.error(f"Error scheduling weekly retraining: {e}", exc_info=True)
 
     async def schedule_job(
         self,
-        db: Session,
+        db: AsyncSession,
         job_type: JobType,
         account_id: Optional[int] = None,
         before_time: Optional[datetime] = None,
@@ -231,14 +230,14 @@ class EcoScheduler:
         )
 
         db.add(job)
-        db.commit()
-        db.refresh(job)
+        await db.commit()
+        await db.refresh(job)
 
         logger.info(f"Created job {job.id}: {job_type.value} scheduled for {scheduled_for}")
 
         return job.id
 
-    async def execute_job(self, job: Job, db: Session):
+    async def execute_job(self, job: Job, db: AsyncSession):
         """
         Execute a specific job and log results.
 
@@ -251,7 +250,7 @@ class EcoScheduler:
         # Mark as running
         job.status = JobStatus.RUNNING
         job.started_at = datetime.utcnow()
-        db.commit()
+        await db.commit()
 
         start_time = datetime.utcnow()
         success = False
@@ -276,6 +275,10 @@ class EcoScheduler:
                 await carbon_service.update_forecasts()
                 success = True
 
+            elif job.job_type == JobType.POST_CONTENT:
+                await self._execute_post_publishing(job, db)
+                success = True
+
             else:
                 error_message = f"Unknown job type: {job.job_type.value}"
                 logger.warning(error_message)
@@ -292,7 +295,7 @@ class EcoScheduler:
         job.status = JobStatus.COMPLETED if success else JobStatus.FAILED
         job.completed_at = datetime.utcnow()
         job.error_message = error_message
-        db.commit()
+        await db.commit()
 
         # Log carbon savings if successful
         if success and job.carbon_intensity:
@@ -312,7 +315,7 @@ class EcoScheduler:
             f"Job {job.id} {result_status} in {execution_time_seconds:.1f}s"
         )
 
-    async def _execute_model_retraining(self, job: Job, db: Session):
+    async def _execute_model_retraining(self, job: Job, db: AsyncSession):
         """Execute model retraining for an account."""
         logger.info(f"Retraining model for account {job.account_id}")
 
@@ -335,21 +338,62 @@ class EcoScheduler:
             logger.error(f"Error retraining model: {e}", exc_info=True)
             raise
 
-    async def _execute_content_generation(self, job: Job, db: Session):
-        """Execute content generation for an account."""
-        logger.info(f"Generating content for account {job.account_id}")
+    async def _execute_content_generation(self, job: Job, db: AsyncSession):
+        """Execute content generation for a scheduled post."""
+        logger.info(f"Generating content for job {job.id}")
 
-        # Will be implemented in Phase 3
-        # For now, just log
-        job.result = {
-            'content_generated': False,
-            'message': 'Content generation not yet implemented (Phase 3)',
-            'timestamp': datetime.utcnow().isoformat()
-        }
+        try:
+            from app.services.content_generation_service import ContentGenerationService
+            from app.api.models.scheduled_posts import ScheduledPost, PostStatus
 
-        logger.info("Content generation placeholder executed")
+            # Get scheduled post ID from job metadata
+            scheduled_post_id = job.result.get('scheduled_post_id')
+            if not scheduled_post_id:
+                raise ValueError("No scheduled_post_id in job metadata")
 
-    async def _execute_post_sync(self, job: Job, db: Session):
+            # Get scheduled post
+            query = select(ScheduledPost).where(
+                ScheduledPost.id == scheduled_post_id
+            )
+            result = await db.execute(query)
+            post = result.scalar_one_or_none()
+
+            if not post:
+                raise ValueError(f"Scheduled post {scheduled_post_id} not found")
+
+            # Generate content
+            content_service = ContentGenerationService(db)
+            result = await content_service.generate_caption(
+                account_id=job.account_id,
+                content_type=post.content_type or "IMAGE",
+                topic=job.result.get('topic')
+            )
+
+            # Update scheduled post with generated content
+            post.content = result['caption']
+            post.status = PostStatus.GENERATED
+            post.generation_job_id = job.id
+
+            await db.commit()
+
+            # Store result in job
+            job.result = {
+                'content_generated': True,
+                'scheduled_post_id': scheduled_post_id,
+                'caption_length': len(result['caption']),
+                'hashtags_count': len(result['hashtags']),
+                'tokens_used': result['tokens_used'],
+                'generation_time': result['generation_time'],
+                'timestamp': datetime.utcnow().isoformat()
+            }
+
+            logger.info(f"Content generated successfully for post {scheduled_post_id}")
+
+        except Exception as e:
+            logger.error(f"Error generating content: {e}", exc_info=True)
+            raise
+
+    async def _execute_post_sync(self, job: Job, db: AsyncSession):
         """Execute post synchronization for an account."""
         logger.info(f"Syncing posts for account {job.account_id}")
 
@@ -368,4 +412,35 @@ class EcoScheduler:
 
         except Exception as e:
             logger.error(f"Error syncing posts: {e}", exc_info=True)
+            raise
+
+    async def _execute_post_publishing(self, job: Job, db: AsyncSession):
+        """Execute Instagram post publishing."""
+        logger.info(f"Publishing post for job {job.id}")
+
+        try:
+            from app.services.instagram_posting_service import InstagramPostingService
+
+            # Get scheduled post ID from job metadata
+            scheduled_post_id = job.result.get('scheduled_post_id')
+            if not scheduled_post_id:
+                raise ValueError("No scheduled_post_id in job metadata")
+
+            # Publish to Instagram
+            posting_service = InstagramPostingService(db)
+            result = await posting_service.publish_scheduled_post(scheduled_post_id)
+
+            # Store result in job
+            job.result = {
+                'post_published': True,
+                'scheduled_post_id': scheduled_post_id,
+                'instagram_post_id': result['instagram_post_id'],
+                'permalink': result['permalink'],
+                'timestamp': datetime.utcnow().isoformat()
+            }
+
+            logger.info(f"Post {scheduled_post_id} published successfully: {result['permalink']}")
+
+        except Exception as e:
+            logger.error(f"Error publishing post: {e}", exc_info=True)
             raise

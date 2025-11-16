@@ -72,6 +72,6 @@ class TrainModelResponse(BaseModel):
     message: str
     model_version: str
     training_samples: int = Field(..., description="Number of posts used for training")
-    model_accuracy: float = Field(..., description="R² score or similar metric")
+    accuracy: float = Field(..., description="R² score or similar metric")
     training_duration_seconds: int
     job_id: Optional[int] = Field(None, description="Background job ID if async")

@@ -110,8 +110,8 @@ class DataLoader:
 
         df = pd.DataFrame(data)
 
-        # Ensure posted_at is datetime
-        df["posted_at"] = pd.to_datetime(df["posted_at"])
+        # Ensure posted_at is datetime (handle timezone-aware datetimes)
+        df["posted_at"] = pd.to_datetime(df["posted_at"], utc=True)
 
         # Sort by time
         df = df.sort_values("posted_at").reset_index(drop=True)

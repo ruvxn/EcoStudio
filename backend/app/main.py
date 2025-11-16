@@ -9,8 +9,8 @@ from fastapi.responses import JSONResponse
 import logging
 
 from app.core.config import settings
-from app.core.database import init_db, SessionLocal
-from app.api.endpoints import accounts, predictions, scheduled_posts, carbon, jobs
+from app.core.database import init_db, AsyncSessionLocal
+from app.api.endpoints import accounts, predictions, scheduled_posts, carbon, jobs, workflow
 from app.services.eco_scheduler import EcoScheduler
 
 # Configure logging
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
 
     # Start EcoScheduler for background jobs
     try:
-        scheduler = EcoScheduler(SessionLocal)
+        scheduler = EcoScheduler(AsyncSessionLocal)
         await scheduler.start()
         app.state.scheduler = scheduler
         logger.info("EcoScheduler initialized successfully")
@@ -152,6 +152,12 @@ app.include_router(
     jobs.router,
     prefix=f"{settings.API_V1_STR}/jobs",
     tags=["Jobs"],
+)
+
+app.include_router(
+    workflow.router,
+    prefix=f"{settings.API_V1_STR}/workflow",
+    tags=["Workflow"],
 )
 
 
